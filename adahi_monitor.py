@@ -9,88 +9,76 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# دعم اللغة العربية في مخرجات GitHub
 sys.stdout.reconfigure(encoding='utf-8')
 
-# --- إعداداتك الخاصة ---
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1496878067644235927/cqpxhZd03Q7JGwYgn_vhbGQZ4LvUdVjXTpxCsjmFPGk4gVeYsavH_VMDlXN1PBn8IPTq"
-
-# كلمات مفتاحية ذكية: "درار" تجلب (أدرار/ادرار)، و"برج" تجلب (برج بوعريريج)
 MY_STATES = ["درار", "بجاية", "سطيف", "برج"]
 
 def send_discord(message):
-    payload = {"content": message}
     try:
-        response = requests.post(DISCORD_WEBHOOK, json=payload)
-        if response.status_code == 204:
-            print("✅ تم إرسال التنبيه إلى ديسكورد بنجاح!")
-    except Exception as e:
-        print(f"❌ فشل إرسال التنبيه: {e}")
+        requests.post(DISCORD_WEBHOOK, json={"content": message}, timeout=10)
+    except:
+        pass
 
 def run_check():
     options = Options()
-    # إعدادات لزيادة الاستقرار ومنع الـ Timeout في GitHub Actions
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
     options.add_argument("--window-size=1920,1080")
+    # --- الحل السحري للـ Timeout ---
+    options.page_load_strategy = 'eager' # لا تنتظر تحميل الصور والملفات الثقيلة
+    options.add_argument("--blink-settings=imagesEnabled=false") # تسريع الموقع بمنع الصور
     
-    # تحسين تشغيل المتصفح
-    service = Service(ChromeDriverManager().install())
     driver = None
-
     try:
-        print(f"[{time.strftime('%H:%M:%S')}] جاري تشغيل المتصفح...")
+        print(f"[{time.strftime('%H:%M:%S')}] تشغيل المحرك السحابي...")
+        service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
-        driver.set_page_load_timeout(90) # زيادة مهلة تحميل الصفحة لتجنب الخطأ السابق
         
-        print(f"[{time.strftime('%H:%M:%S')}] الدخول لموقع أضاحي...")
-        driver.get("https://adhahi.dz/register")
+        # ضبط مهلة قصيرة للتحميل لمنع التجمد الطويل
+        driver.set_page_load_timeout(30) 
         
-        wait = WebDriverWait(driver, 60) # مهلة كافية للانتظار
+        print(f"[{time.strftime('%H:%M:%S')}] محاولة الدخول السريع للموقع...")
+        try:
+            driver.get("https://adhahi.dz/register")
+        except Exception:
+            print("⚠️ تم تجاوز مهلة التحميل الكاملة (سنحاول العمل بما تم تحميله)")
+
+        wait = WebDriverWait(driver, 40)
         
-        # العثور على حقل اختيار الولاية والنقر عليه
-        input_field = wait.until(EC.element_to_be_clickable((By.ID, "reg-wilaya")))
+        # محاولة العثور على القائمة
+        print("🔍 البحث عن قائمة الولايات...")
+        input_field = wait.until(EC.presence_of_element_located((By.ID, "reg-wilaya")))
+        
+        # استخدام JavaScript للنقر لتجنب مشاكل الـ Renderer
         driver.execute_script("arguments[0].click();", input_field)
         
-        print("📡 انتظار تحميل القائمة المنسدلة...")
-        time.sleep(10) # وقت إضافي لضمان تحميل جميع الولايات من السيرفر
+        time.sleep(12) # وقت كافٍ جداً لجلب البيانات من السيرفر
 
-        # البحث عن الولايات (نقوم بالبحث في جميع عناصر القائمة li)
         items = driver.find_elements(By.TAG_NAME, "li")
         
-        if len(items) < 10:
-            print("⚠️ لم يتم تحميل الولايات بشكل صحيح (ربما ضغط على الموقع).")
+        if len(items) < 5:
+            print("⚠️ القائمة لم تكتمل بعد، إعادة المحاولة في الدورة القادمة.")
             return
 
-        found_any = False
         for item in items:
             text = item.text.strip()
-            if not text: continue
-            
-            for state in MY_STATES:
-                if state in text:
-                    found_any = True
-                    # التحقق من وجود كلمة "متوفر" أو "disponible"
-                    if "متوفر" in text or "disponible" in text.lower():
-                        msg = f"📢 @everyone **عاجل: توفر الحجز في {text}!**\nاحجز الآن فوراً: https://adhahi.dz/register"
-                        send_discord(msg)
-                        print(f"✅ مبروك! وجدنا حجز في: {text}")
-                        return 
-                    else:
-                        print(f"⏳ {text}: غير متاح حالياً.")
-
-        if not found_any:
-            print("ℹ️ القائمة موجودة ولكن الولايات المختارة غير موجودة فيها حالياً.")
-
+            if any(state in text for state in MY_STATES):
+                if "متوفر" in text or "disponible" in text.lower():
+                    send_discord(f"📢 @everyone **حجز متاح الآن في: {text}!**\nhttps://adhahi.dz/register")
+                    print(f"✅ تم العثور على هدف: {text}")
+                    return
+                else:
+                    print(f"⏳ {text}: غير متاح.")
+                    
     except Exception as e:
-        print(f"❌ حدث خطأ تقني: {e}")
+        print(f"❌ خطأ غير متوقع: {str(e)[:100]}") # طباعة جزء من الخطأ للاختصار
     finally:
         if driver:
             driver.quit()
-            print("🚪 تم إغلاق المتصفح.")
+            print("🚪 إغلاق آمن للمتصفح.")
 
 if __name__ == "__main__":
     run_check()
