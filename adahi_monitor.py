@@ -9,13 +9,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# تأمين دعم اللغة العربية
+# دعم العربية
 sys.stdout.reconfigure(encoding='utf-8')
 
-# --- الإعدادات ---
 TARGET_URL = "https://adhahi.dz/register"
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1496878067644235927/cqpxhZd03Q7JGwYgn_vhbGQZ4LvUdVjXTpxCsjmFPGk4gVeYsavH_VMDlXN1PBn8IPTq"
-MY_STATES = ["الجزائر", "بومرداس", "بجاية", "سطيف", "برج"]
+MY_STATES = ["جزائر", "بومرداس", "بجاية", "سطيف", "برج"]
 
 def send_discord_msg(message):
     try:
@@ -25,68 +24,66 @@ def send_discord_msg(message):
 
 def run_monitor():
     options = Options()
-    # إعدادات إجبارية لمنع خطأ الـ Timeout في GitHub
-    options.add_argument("--headless=new") # استخدام النسخة الجديدة من headless
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
     options.add_argument("--window-size=1920,1080")
     
-    # تحسين استقرار الاتصال
-    service = Service(ChromeDriverManager().install())
-    driver = None
+    # --- التعديل الجوهري لحل مشكلة Renderer Timeout ---
+    options.page_load_strategy = 'eager' # ابدأ العمل قبل اكتمال تحميل كل شيء
+    options.add_argument("--blink-settings=imagesEnabled=false") # تسريع خيالي بمنع الصور
     
+    driver = None
     try:
-        print(f"[{time.strftime('%H:%M:%S')}] جاري تشغيل المتصفح...")
+        print(f"[{time.strftime('%H:%M:%S')}] تشغيل المحرك السحابي...")
+        service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         
-        # ضبط مهلة انتظار الصفحة لتقليل الضغط
-        driver.set_page_load_timeout(60)
+        # ضبط مهلة قصيرة (30 ثانية) لأننا نستخدم eager
+        driver.set_page_load_timeout(30)
         
-        print(f"[{time.strftime('%H:%M:%S')}] الدخول للموقع: {TARGET_URL}")
-        driver.get(TARGET_URL)
+        print(f"[{time.strftime('%H:%M:%S')}] دخول سريع للموقع...")
+        try:
+            driver.get(TARGET_URL)
+        except:
+            # نتجاهل التايم أوت ونكمل لأن 'eager' يكون قد جلب الهيكل الأساسي فعلاً
+            pass
         
         wait = WebDriverWait(driver, 40)
         
-        # النقر على القائمة (نفس طريقتك)
-        input_field = wait.until(EC.element_to_be_clickable((By.ID, "reg-wilaya")))
-        driver.execute_script("arguments[0].scrollIntoView();", input_field)
-        time.sleep(2)
+        # البحث عن القائمة
+        print("🔍 البحث عن حقل الولايات...")
+        input_field = wait.until(EC.presence_of_element_located((By.ID, "reg-wilaya")))
+        
+        # النقر باستخدام جافا سكريبت لأنه الأضمن في حالات التجميد
         driver.execute_script("arguments[0].click();", input_field)
         
-        # استخدام XPath الذي تفضله للبحث عن القائمة
-        listbox_xpath = "//ul[@role='listbox']"
-        wait.until(EC.presence_of_element_located((By.XPATH, listbox_xpath)))
-        
-        print("📡 جاري فحص الولايات...")
-        time.sleep(10) # وقت كافٍ لتحميل البيانات
+        print("📡 فحص الولايات (انتظار تحميل البيانات)...")
+        time.sleep(12) 
 
+        # منطق الـ XPath الخاص بك
         items = driver.find_elements(By.XPATH, "//ul[@role='listbox']//li")
         
         if not items:
-            print("⚠️ القائمة فارغة حالياً.")
+            print("⚠️ القائمة لم تظهر، الموقع ثقيل جداً حالياً.")
             return
 
-        print(f"✅ تم العثور على {len(items)} ولاية.")
+        print(f"✅ تم جلب {len(items)} ولاية.")
         
         for item in items:
-            wilaya_text = item.text.strip()
-            if not wilaya_text: continue
-            
-            for state in MY_STATES:
-                if state in wilaya_text:
-                    if "متوفر" in wilaya_text or "disponible" in wilaya_text.lower():
-                        msg = f"📢 @everyone **عاجل: توفر الحجز في {wilaya_text}!**\n{TARGET_URL}"
-                        print(msg)
-                        send_discord_msg(msg)
-                        return 
-                    else:
-                        print(f"⏳ {wilaya_text}: غير متاح.")
+            text = item.text.strip()
+            if any(state in text for state in MY_STATES):
+                if "متوفر" in text or "disponible" in text.lower():
+                    msg = f"📢 @everyone **عاجل: توفر الحجز في {text}!**\n{TARGET_URL}"
+                    send_discord_msg(msg)
+                    print(f"✅ مبروك! هدف محقق: {text}")
+                    return 
+                else:
+                    print(f"⏳ {text}: غير متاح.")
 
     except Exception as e:
-        # طباعة الخطأ بشكل مختصر لتسهيل التصحيح
-        print(f"❌ حدث خطأ: {str(e)[:100]}")
+        print(f"❌ خطأ تقني: {str(e)[:100]}")
     finally:
         if driver:
             driver.quit()
