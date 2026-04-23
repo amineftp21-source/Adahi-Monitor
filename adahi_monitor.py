@@ -9,7 +9,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# دعم العربية
 sys.stdout.reconfigure(encoding='utf-8')
 
 TARGET_URL = "https://adhahi.dz/register"
@@ -30,46 +29,47 @@ def run_monitor():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # --- التعديل الجوهري لحل مشكلة Renderer Timeout ---
-    options.page_load_strategy = 'eager' # ابدأ العمل قبل اكتمال تحميل كل شيء
-    options.add_argument("--blink-settings=imagesEnabled=false") # تسريع خيالي بمنع الصور
-    
+    # تحسين الأداء ومنع الصور لتسريع التحميل وتجنب الـ Renderer Timeout
+    options.add_argument("--blink-settings=imagesEnabled=false")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
     driver = None
     try:
-        print(f"[{time.strftime('%H:%M:%S')}] تشغيل المحرك السحابي...")
+        print(f"[{time.strftime('%H:%M:%S')}] بدء المحاولة...")
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         
-        # ضبط مهلة قصيرة (30 ثانية) لأننا نستخدم eager
-        driver.set_page_load_timeout(30)
+        # مهلة انتظار منطقية (45 ثانية) مع استراتيجية تحميل عادية
+        driver.set_page_load_timeout(45)
         
-        print(f"[{time.strftime('%H:%M:%S')}] دخول سريع للموقع...")
-        try:
-            driver.get(TARGET_URL)
-        except:
-            # نتجاهل التايم أوت ونكمل لأن 'eager' يكون قد جلب الهيكل الأساسي فعلاً
-            pass
+        print(f"[{time.strftime('%H:%M:%S')}] الدخول للموقع...")
+        driver.get(TARGET_URL)
         
-        wait = WebDriverWait(driver, 40)
+        # انتظار ذكي حتى يظهر العنصر تماماً
+        wait = WebDriverWait(driver, 50)
         
-        # البحث عن القائمة
         print("🔍 البحث عن حقل الولايات...")
+        # سننتظر وجود العنصر في الـ DOM أولاً
         input_field = wait.until(EC.presence_of_element_located((By.ID, "reg-wilaya")))
         
-        # النقر باستخدام جافا سكريبت لأنه الأضمن في حالات التجميد
+        # التمرير إليه لضمان أنه مرئي للمتصفح
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", input_field)
+        time.sleep(3)
+        
+        # النقر باستخدام JavaScript (أكثر موثوقية في السيرفرات)
         driver.execute_script("arguments[0].click();", input_field)
         
-        print("📡 فحص الولايات (انتظار تحميل البيانات)...")
-        time.sleep(12) 
+        print("📡 فحص القائمة المنسدلة...")
+        time.sleep(12) # وقت كافٍ للسيرفر ليرسل الولايات
 
-        # منطق الـ XPath الخاص بك
-        items = driver.find_elements(By.XPATH, "//ul[@role='listbox']//li")
+        # البحث عن العناصر li باستخدام الطريقة العامة (أضمن من XPath المعقد)
+        items = driver.find_elements(By.TAG_NAME, "li")
         
         if not items:
-            print("⚠️ القائمة لم تظهر، الموقع ثقيل جداً حالياً.")
+            print("⚠️ القائمة مفتوحة لكن لم يتم العثور على ولايات (ربما بطء في التحميل).")
             return
 
-        print(f"✅ تم جلب {len(items)} ولاية.")
+        print(f"✅ تم العثور على {len(items)} عنصر.")
         
         for item in items:
             text = item.text.strip()
@@ -77,17 +77,19 @@ def run_monitor():
                 if "متوفر" in text or "disponible" in text.lower():
                     msg = f"📢 @everyone **عاجل: توفر الحجز في {text}!**\n{TARGET_URL}"
                     send_discord_msg(msg)
-                    print(f"✅ مبروك! هدف محقق: {text}")
+                    print(f"✅ تم الإرسال لديسكورد: {text}")
                     return 
                 else:
                     print(f"⏳ {text}: غير متاح.")
 
     except Exception as e:
-        print(f"❌ خطأ تقني: {str(e)[:100]}")
+        # طباعة تفاصيل الخطأ بدقة لنعرف أين توقف بالضبط
+        print(f"❌ خطأ في المرحلة: {type(e).__name__}")
+        print(f"📝 التفاصيل: {str(e)[:150]}")
     finally:
         if driver:
             driver.quit()
-            print("🚪 إغلاق المتصفح.")
+            print("🚪 تم إغلاق المتصفح.")
 
 if __name__ == "__main__":
     run_monitor()
