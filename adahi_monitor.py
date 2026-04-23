@@ -18,8 +18,7 @@ MY_STATES = ["جزائر", "بومرداس", "بجاية", "سطيف", "برج"]
 def send_discord_msg(message):
     try:
         requests.post(DISCORD_WEBHOOK, json={"content": message}, timeout=10)
-    except:
-        pass
+    except: pass
 
 def run_monitor():
     options = Options()
@@ -27,69 +26,63 @@ def run_monitor():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
     
-    # تحسين الأداء ومنع الصور لتسريع التحميل وتجنب الـ Renderer Timeout
+    # تحسينات جذرية لمنع الـ Renderer Timeout
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-extensions")
     options.add_argument("--blink-settings=imagesEnabled=false")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+    
+    # استراتيجية تحميل تمنع التعليق
+    options.page_load_strategy = 'none' 
 
     driver = None
     try:
-        print(f"[{time.strftime('%H:%M:%S')}] بدء المحاولة...")
+        print(f"[{time.strftime('%H:%M:%S')}] محاولة الاختراق السريع للموقع...")
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         
-        # مهلة انتظار منطقية (45 ثانية) مع استراتيجية تحميل عادية
-        driver.set_page_load_timeout(45)
-        
-        print(f"[{time.strftime('%H:%M:%S')}] الدخول للموقع...")
+        # نفتح الموقع وننتظر يدوياً بدلاً من ترك المتصفح يعلق
         driver.get(TARGET_URL)
         
-        # انتظار ذكي حتى يظهر العنصر تماماً
-        wait = WebDriverWait(driver, 50)
-        
-        print("🔍 البحث عن حقل الولايات...")
-        # سننتظر وجود العنصر في الـ DOM أولاً
-        input_field = wait.until(EC.presence_of_element_located((By.ID, "reg-wilaya")))
-        
-        # التمرير إليه لضمان أنه مرئي للمتصفح
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", input_field)
-        time.sleep(3)
-        
-        # النقر باستخدام JavaScript (أكثر موثوقية في السيرفرات)
-        driver.execute_script("arguments[0].click();", input_field)
-        
-        print("📡 فحص القائمة المنسدلة...")
-        time.sleep(12) # وقت كافٍ للسيرفر ليرسل الولايات
+        # انتظار يدوي مرن لظهور الهيكل
+        found = False
+        for i in range(15): # انتظر حتى 30 ثانية
+            time.sleep(2)
+            if "reg-wilaya" in driver.page_source:
+                found = True
+                break
+            print("⏳ في انتظار استجابة السيرفر...")
 
-        # البحث عن العناصر li باستخدام الطريقة العامة (أضمن من XPath المعقد)
-        items = driver.find_elements(By.TAG_NAME, "li")
-        
-        if not items:
-            print("⚠️ القائمة مفتوحة لكن لم يتم العثور على ولايات (ربما بطء في التحميل).")
+        if not found:
+            print("❌ الموقع لم يستجب في الوقت المحدد.")
             return
 
-        print(f"✅ تم العثور على {len(items)} عنصر.")
+        # محاولة النقر المباشر عبر جافا سكريبت (تتخطى مشاكل الرسم)
+        print("🔍 محاولة فتح قائمة الولايات...")
+        driver.execute_script("document.getElementById('reg-wilaya').click();")
         
+        time.sleep(10) # وقت لتحميل الولايات
+
+        items = driver.find_elements(By.TAG_NAME, "li")
+        print(f"📊 النتائج المكتشفة: {len(items)} عنصر.")
+
         for item in items:
             text = item.text.strip()
             if any(state in text for state in MY_STATES):
                 if "متوفر" in text or "disponible" in text.lower():
-                    msg = f"📢 @everyone **عاجل: توفر الحجز في {text}!**\n{TARGET_URL}"
-                    send_discord_msg(msg)
-                    print(f"✅ تم الإرسال لديسكورد: {text}")
-                    return 
+                    send_discord_msg(f"📢 @everyone **حجز متاح الآن في: {text}!**\n{TARGET_URL}")
+                    print(f"✅ تم العثور على حجز في {text}")
+                    return
                 else:
                     print(f"⏳ {text}: غير متاح.")
 
     except Exception as e:
-        # طباعة تفاصيل الخطأ بدقة لنعرف أين توقف بالضبط
-        print(f"❌ خطأ في المرحلة: {type(e).__name__}")
-        print(f"📝 التفاصيل: {str(e)[:150]}")
+        print(f"⚠️ خطأ بسيط: {str(e)[:50]}")
     finally:
         if driver:
             driver.quit()
-            print("🚪 تم إغلاق المتصفح.")
+            print("🚪 إغلاق المتصفح.")
 
 if __name__ == "__main__":
     run_monitor()
