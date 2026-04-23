@@ -12,60 +12,63 @@ from webdriver_manager.chrome import ChromeDriverManager
 # تأمين دعم اللغة العربية
 sys.stdout.reconfigure(encoding='utf-8')
 
-# --- إعدادات المراقبة والتنبيه ---
+# --- الإعدادات ---
 TARGET_URL = "https://adhahi.dz/register"
-# رابط الويب هوك الخاص بك على ديسكورد
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1496878067644235927/cqpxhZd03Q7JGwYgn_vhbGQZ4LvUdVjXTpxCsjmFPGk4gVeYsavH_VMDlXN1PBn8IPTq"
-
-# الولايات المطلوبة (استخدمنا كلمات مفتاحية لتجنب مشاكل الهمزة)
-MY_STATES = ["جزائر", "بومرداس", "بجاية", "سطيف", "برج"]
+MY_STATES = ["الجزائر", "بومرداس", "بجاية", "سطيف", "برج"]
 
 def send_discord_msg(message):
-    """إرسال تنبيه إلى ديسكورد"""
-    payload = {"content": message}
     try:
-        requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
-        print("✅ تم إرسال التنبيه إلى ديسكورد!")
-    except Exception as e:
-        print(f"⚠️ فشل إرسال التنبيه: {e}")
+        requests.post(DISCORD_WEBHOOK, json={"content": message}, timeout=10)
+    except:
+        pass
 
 def run_monitor():
     options = Options()
-    # إعدادات إجبارية للعمل في GitHub Actions
-    options.add_argument("--headless")
+    # إعدادات إجبارية لمنع خطأ الـ Timeout في GitHub
+    options.add_argument("--headless=new") # استخدام النسخة الجديدة من headless
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
     options.add_argument("--window-size=1920,1080")
     
-    # محاكاة متصفح حقيقي لتجنب الحظر
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    # تحسين استقرار الاتصال
+    service = Service(ChromeDriverManager().install())
+    driver = None
     
     try:
-        print(f"\n[{time.strftime('%H:%M:%S')}] جاري فحص المنصة...")
+        print(f"[{time.strftime('%H:%M:%S')}] جاري تشغيل المتصفح...")
+        driver = webdriver.Chrome(service=service, options=options)
+        
+        # ضبط مهلة انتظار الصفحة لتقليل الضغط
+        driver.set_page_load_timeout(60)
+        
+        print(f"[{time.strftime('%H:%M:%S')}] الدخول للموقع: {TARGET_URL}")
         driver.get(TARGET_URL)
         
         wait = WebDriverWait(driver, 40)
         
-        # الانتظار والنقر على قائمة الولايات
+        # النقر على القائمة (نفس طريقتك)
         input_field = wait.until(EC.element_to_be_clickable((By.ID, "reg-wilaya")))
         driver.execute_script("arguments[0].scrollIntoView();", input_field)
         time.sleep(2)
         driver.execute_script("arguments[0].click();", input_field)
         
-        # انتظار ظهور القائمة المنسدلة (باستخدام نفس المنطق الخاص بك)
+        # استخدام XPath الذي تفضله للبحث عن القائمة
         listbox_xpath = "//ul[@role='listbox']"
         wait.until(EC.presence_of_element_located((By.XPATH, listbox_xpath)))
-        time.sleep(10) # وقت إضافي لتحميل البيانات
+        
+        print("📡 جاري فحص الولايات...")
+        time.sleep(10) # وقت كافٍ لتحميل البيانات
 
         items = driver.find_elements(By.XPATH, "//ul[@role='listbox']//li")
         
         if not items:
-            print("⚠️ القائمة مفتوحة لكن لم تظهر الولايات بعد.")
+            print("⚠️ القائمة فارغة حالياً.")
             return
 
-        print(f"✅ تم العثور على {len(items)} ولاية في القائمة.")
+        print(f"✅ تم العثور على {len(items)} ولاية.")
         
         for item in items:
             wilaya_text = item.text.strip()
@@ -74,17 +77,20 @@ def run_monitor():
             for state in MY_STATES:
                 if state in wilaya_text:
                     if "متوفر" in wilaya_text or "disponible" in wilaya_text.lower():
-                        alert_msg = f"📢 @everyone **مبروك! متوفر الآن:** {wilaya_text}\nرابط الحجز: {TARGET_URL}"
-                        print(alert_msg)
-                        send_discord_msg(alert_msg)
+                        msg = f"📢 @everyone **عاجل: توفر الحجز في {wilaya_text}!**\n{TARGET_URL}"
+                        print(msg)
+                        send_discord_msg(msg)
                         return 
                     else:
-                        print(f"⏳ حالة {wilaya_text}: غير متوفر.")
+                        print(f"⏳ {wilaya_text}: غير متاح.")
 
     except Exception as e:
-        print(f"❌ حدث خطأ أثناء الفحص: {str(e)[:100]}")
+        # طباعة الخطأ بشكل مختصر لتسهيل التصحيح
+        print(f"❌ حدث خطأ: {str(e)[:100]}")
     finally:
-        driver.quit()
+        if driver:
+            driver.quit()
+            print("🚪 إغلاق المتصفح.")
 
 if __name__ == "__main__":
     run_monitor()
